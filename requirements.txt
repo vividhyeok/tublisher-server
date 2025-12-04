@@ -3,3 +3,5 @@ uvicorn
 youtube-transcript-api
 openai
 ebooklib
+markdown
+requests
