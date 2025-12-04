@@ -235,7 +235,7 @@ async def create_book(request: BookRequest, background_tasks: BackgroundTasks):
                 audio_file = genai.upload_file(audio_path)
                 
                 print("   🤖 Gemini 집필 중...")
-                model = genai.GenerativeModel("gemini-1.5-flash")
+                model = genai.GenerativeModel("gemini-1.5-flash-latest")
                 response = model.generate_content([
                     system_prompt + "\n이 오디오 파일을 듣고 위 지침에 따라 책 원고를 작성해줘.",
                     audio_file
