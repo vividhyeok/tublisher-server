@@ -18,7 +18,7 @@ import google.generativeai as genai
 
 app = FastAPI()
 
-# CORS 설정
+# 💡 CORS 설정: 안드로이드 앱에서 서버 접근을 허용합니다. (필수)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,6 +53,7 @@ def get_video_title(url: str):
         return "YouTube Video Summary"
 
 def extract_video_id(url: str):
+    """URL에서 Video ID 추출"""
     regex = r"(?:v=|\/)([0-9A-Za-z_-]{11}).*"
     match = re.search(regex, url)
     if match:
@@ -61,24 +62,23 @@ def extract_video_id(url: str):
 
 def download_audio(url: str):
     """
-    yt-dlp를 사용하여 오디오 다운로드 및 mp3 변환
-    (nixpacks.toml 설정을 통해 ffmpeg가 설치되어 있어야 함)
+    yt-dlp를 사용하여 오디오 다운로드 및 mp3 변환. 
+    (FFmpeg 경로 탐색 로직 포함)
     """
+    # ffmpeg 경로를 환경변수에서 찾거나 시스템에서 찾습니다.
     ffmpeg_path = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
-    ffprobe_path = os.environ.get("FFPROBE_PATH") or shutil.which("ffprobe")
-
-    if not ffmpeg_path or not ffprobe_path:
+    
+    if not ffmpeg_path:
         raise RuntimeError(
-            "ffmpeg/ffprobe를 찾을 수 없습니다. Railway 환경에 ffmpeg를 설치하거나 "
-            "FFMPEG_PATH/FFPROBE_PATH 환경 변수를 설정해주세요."
+            "ffmpeg/ffprobe를 찾을 수 없습니다. nixpacks.toml 또는 환경 변수를 확인해주세요."
         )
 
+    # yt-dlp 옵션 설정
     ydl_opts = {
         'format': 'bestaudio/best',
         'ffmpeg_location': os.path.dirname(ffmpeg_path) if os.path.isdir(ffmpeg_path) else ffmpeg_path,
-        # ffmpeg를 사용하여 mp3로 변환 (용량 절약 및 호환성 확보)
         'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
-        'outtmpl': '/tmp/%(id)s.%(ext)s',  # Railway 임시 폴더 경로
+        'outtmpl': '/tmp/%(id)s.%(ext)s',  # Railway 임시 폴더
         'quiet': True,
         'noplaylist': True
     }
@@ -89,7 +89,7 @@ def download_audio(url: str):
 def create_epub_file(title: str, content_markdown: str, video_id: str):
     """EPUB 생성 + 한글 인코딩 및 폰트 처리"""
     
-    # 제목과 본문 모두 자모음 합치기 (NFC 정규화) - 중요!
+    # 제목과 본문 모두 자모음 합치기 (NFC 정규화) - 한글 깨짐 방지
     title = unicodedata.normalize('NFC', title)
     content_markdown = unicodedata.normalize('NFC', content_markdown)
 
@@ -99,7 +99,6 @@ def create_epub_file(title: str, content_markdown: str, video_id: str):
     book.set_language('ko')
     book.add_author('Tublisher AI')
 
-    # Markdown을 HTML로 변환
     html_content = markdown.markdown(content_markdown)
     
     c1 = epub.EpubHtml(title='Summary', file_name='chap_01.xhtml', lang='ko')
@@ -117,7 +116,7 @@ def create_epub_file(title: str, content_markdown: str, video_id: str):
                 font-family: sans-serif; 
                 line-height: 1.8; 
                 color: #333; 
-                word-break: keep-all; /* 한글 단어 단위 줄바꿈 */
+                word-break: keep-all; 
             }}
             h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
             h2 {{ color: #2980b9; margin-top: 30px; border-left: 5px solid #eee; padding-left: 10px; }}
@@ -147,12 +146,12 @@ def create_epub_file(title: str, content_markdown: str, video_id: str):
     book.add_item(epub.EpubNav())
     book.spine = ['nav', c1]
 
-    # 임시 파일 생성
     with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as tmp:
         epub.write_epub(tmp.name, book)
         return tmp.name
 
 def remove_file(path: str):
+    """BackgroundTasks에서 사용: 파일 전송 후 삭제"""
     if os.path.exists(path):
         os.remove(path)
 
@@ -163,15 +162,18 @@ def read_root():
 @app.post("/api/create_book")
 async def create_book(request: BookRequest, background_tasks: BackgroundTasks):
     print(f"📥 [주문 접수] URL: {request.url}")
-    video_id = extract_video_id(request.url)
+    
+    # ⚠️ URL 유효성 검사 강화 및 정리 (https;// -> https://)
+    clean_url = request.url.replace("https;", "https://").strip()
+    video_id = extract_video_id(clean_url)
+    
     if not video_id:
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
 
-    # 1. 제목 및 메타데이터 추출
-    video_title = get_video_title(request.url)
+    video_title = get_video_title(clean_url)
     book_content = ""
     
-    # 2. 자막 확인 (1차 시도)
+    # 1. 자막 확인 (1차 시도)
     transcript_text = None
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
@@ -180,21 +182,19 @@ async def create_book(request: BookRequest, background_tasks: BackgroundTasks):
     except:
         print("   ⚠️ 자막 없음! (Gemini 오디오 모드)")
 
-    # AI 페르소나 및 지침
     system_prompt = """
     당신은 전문 도서 편집자입니다. 제공된 내용을 바탕으로 가독성 높은 '전자책 챕터'를 작성하세요.
     [지침]
-    1. 구어체를 완벽한 문어체로 변환하고, 소제목(Heading 2)을 적극 활용하여 구조화하세요.
+    1. 구어체를 문어체로 변환하고, 소제목(Heading 2)을 적극 활용하여 구조화하세요.
     2. 핵심 내용은 볼드체로 강조하고, 마크다운 형식으로 출력하세요.
     3. 요약보다는 내용을 충실히 서술하여 지식을 전달하세요.
     """
 
-    # 3. AI 집필 로직 (분기 처리)
-    
-    # [CASE A] 자막이 있는 경우 -> DeepSeek 사용
+    # 2. AI 집필 (분기 처리)
     if transcript_text:
+        # [CASE A] 자막 O -> DeepSeek
         if not DEEPSEEK_API_KEY:
-             book_content = "## 설정 오류\n\nDeepSeek API Key가 설정되지 않았습니다."
+             book_content = "## 설정 오류\n\nDeepSeek API Key가 없습니다."
         else:
             try:
                 response = deepseek_client.chat.completions.create(
@@ -207,16 +207,15 @@ async def create_book(request: BookRequest, background_tasks: BackgroundTasks):
                 book_content = response.choices[0].message.content
             except Exception as e:
                 book_content = f"## AI 오류\n\nDeepSeek 처리 중 오류 발생: {e}"
-    
-    # [CASE B] 자막이 없는 경우 -> Gemini + ffmpeg 오디오 분석
     else:
+        # [CASE B] 자막 X -> Gemini (FFmpeg 필요)
         if not GOOGLE_API_KEY:
-            book_content = "## 설정 오류\n\n자막이 없는 영상은 Gemini가 필요합니다. Railway 변수에 GOOGLE_API_KEY를 설정해주세요."
+            book_content = "## 설정 오류\n\n자막이 없는 영상은 Gemini가 필요합니다. GOOGLE_API_KEY를 설정해주세요."
         else:
             audio_path = None
             try:
                 print("   🎧 오디오 다운로드 중... (ffmpeg 변환)")
-                audio_path = download_audio(request.url)
+                audio_path = download_audio(clean_url)
                 
                 print("   📤 Gemini 분석 중...")
                 audio_file = genai.upload_file(audio_path)
@@ -229,21 +228,18 @@ async def create_book(request: BookRequest, background_tasks: BackgroundTasks):
                 ])
                 book_content = response.text
                 
-                # Gemini 쪽 파일 삭제 (청소)
                 genai.delete_file(audio_file.name)
             except Exception as e:
                 print(f"오디오 처리 에러: {e}")
-                book_content = f"## 처리 실패\n\n오디오 분석 중 오류가 발생했습니다.\nError: {e}\n\n(참고: 서버에 ffmpeg가 설치되어 있어야 합니다.)"
+                book_content = f"## 처리 실패\n\n오디오 분석 중 오류: {e}"
             finally:
-                # 로컬 오디오 파일 삭제
                 if audio_path and os.path.exists(audio_path):
                     os.remove(audio_path)
 
-    # 4. EPUB 생성 및 반환
-    print("   📚 제본 및 배송...")
+    # 3. EPUB 생성
     epub_path = create_epub_file(video_title, book_content, video_id)
     
-    # 파일 전송 후 삭제 예약
+    # 4. 파일 전송 후 서버에서 파일 삭제 예약 (안정성 확보)
     background_tasks.add_task(remove_file, epub_path)
 
     return FileResponse(
