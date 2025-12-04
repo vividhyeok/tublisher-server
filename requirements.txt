@@ -1,2 +1,5 @@
 fastapi
 uvicorn
+youtube-transcript-api
+openai
+ebooklib
