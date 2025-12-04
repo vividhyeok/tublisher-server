@@ -69,14 +69,32 @@ def download_audio(url: str):
     ffmpeg_path = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
     
     if not ffmpeg_path:
+        print("❌ ffmpeg not found in PATH or env vars")
         raise RuntimeError(
             "ffmpeg/ffprobe를 찾을 수 없습니다. nixpacks.toml 또는 환경 변수를 확인해주세요."
         )
+    
+    print(f"✅ Found ffmpeg at: {ffmpeg_path}")
+
+    # ffprobe 확인 (디버깅용)
+    ffprobe_path = shutil.which("ffprobe")
+    if ffprobe_path:
+        print(f"✅ Found ffprobe at: {ffprobe_path}")
+    else:
+        print("⚠️ ffprobe not found in PATH")
+
+    # ffmpeg_location 설정: yt-dlp는 디렉토리 경로를 선호할 수 있음
+    if os.path.isfile(ffmpeg_path):
+        ffmpeg_dir = os.path.dirname(ffmpeg_path)
+    else:
+        ffmpeg_dir = ffmpeg_path
+
+    print(f"📂 Setting ffmpeg_location to: {ffmpeg_dir}")
 
     # yt-dlp 옵션 설정
     ydl_opts = {
         'format': 'bestaudio/best',
-        'ffmpeg_location': os.path.dirname(ffmpeg_path) if os.path.isdir(ffmpeg_path) else ffmpeg_path,
+        'ffmpeg_location': ffmpeg_dir,
         'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
         'outtmpl': '/tmp/%(id)s.%(ext)s',  # Railway 임시 폴더
         'quiet': True,
