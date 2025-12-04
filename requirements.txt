@@ -5,3 +5,5 @@ openai
 ebooklib
 markdown
 requests
+yt-dlp
+google-generativeai

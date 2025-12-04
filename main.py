@@ -3,62 +3,74 @@ import re
 import tempfile
 import requests
 import markdown
+import glob
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from youtube_transcript_api import YouTubeTranscriptApi
 from openai import OpenAI
 from ebooklib import epub
+import yt_dlp
+import google.generativeai as genai
 
 app = FastAPI()
 
-# 🔑 Railway 변수(Settings > Variables)에 설정한 DEEPSEEK_API_KEY를 가져옵니다.
-# 로컬 테스트 시에는 두 번째 인자에 키를 직접 넣을 수도 있지만, 배포 시엔 환경변수가 필수입니다.
+# 🔑 API 키 설정 (Railway Variables에서 설정 필요)
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-# DeepSeek 클라이언트 설정 (OpenAI SDK 호환)
-client = OpenAI(
+# 1. DeepSeek 클라이언트 (자막 있을 때용 - 가성비 & 속도)
+deepseek_client = OpenAI(
     api_key=DEEPSEEK_API_KEY,
     base_url="https://api.deepseek.com"
 )
+
+# 2. Gemini 클라이언트 (자막 없을 때용 - 듣기 & 보기 능력자)
+if GOOGLE_API_KEY:
+    genai.configure(api_key=GOOGLE_API_KEY)
 
 class BookRequest(BaseModel):
     url: str
 
 def get_video_title(url: str):
-    """유튜브 페이지에서 영상 제목을 가져오는 함수 (실패 시 기본값 반환)"""
+    """영상 제목 가져오기 (yt-dlp 사용이 더 정확함)"""
     try:
-        response = requests.get(url)
-        # 간단하게 title 태그 내용을 긁어옵니다
-        matches = re.findall(r'<title>(.*?)</title>', response.text)
-        if matches:
-            # " - YouTube" 같은 뒷부분 제거
-            return matches[0].replace(" - YouTube", "")
+        with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info.get('title', 'YouTube Summary')
     except:
-        pass
-    return "YouTube Video Summary"
+        return "YouTube Video Summary"
 
 def extract_video_id(url: str):
-    """URL에서 Video ID 추출 (정규식 사용)"""
-    # 다양한 유튜브 URL 포맷 지원 (youtu.be, watch?v= 등)
     regex = r"(?:v=|\/)([0-9A-Za-z_-]{11}).*"
     match = re.search(regex, url)
     if match:
         return match.group(1)
     return None
 
+def download_audio(url: str):
+    """유튜브에서 오디오만 가장 낮은 용량으로 빠르게 다운로드"""
+    # Railway 같은 클라우드 환경의 임시 폴더(/tmp) 사용
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
+        'outtmpl': '/tmp/%(id)s.%(ext)s', 
+        'quiet': True,
+        'noplaylist': True
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return f"/tmp/{info['id']}.mp3"
+
 def create_epub_file(title: str, content_markdown: str, video_id: str):
-    """AI가 쓴 마크다운 텍스트를 EPUB 파일로 변환하여 임시 경로 반환"""
+    """AI가 작성한 마크다운을 EPUB 파일로 변환"""
     book = epub.EpubBook()
-    
-    # 1. 메타데이터 설정
     book.set_identifier(video_id)
     book.set_title(title)
     book.set_language('ko')
-    book.add_author('DeepSeek AI')
+    book.add_author('Tublisher AI')
 
-    # 2. 챕터 생성 (Markdown -> HTML 변환)
-    # 읽기 편하도록 간단한 CSS 스타일도 적용된 HTML로 변환합니다.
+    # Markdown을 HTML로 변환
     html_content = markdown.markdown(content_markdown)
     
     c1 = epub.EpubHtml(title='Summary', file_name='chap_01.xhtml', lang='ko')
@@ -66,119 +78,128 @@ def create_epub_file(title: str, content_markdown: str, video_id: str):
         <html>
         <head>
         <style>
-            body {{ font-family: sans-serif; line-height: 1.6; }}
-            h1, h2, h3 {{ color: #2c3e50; }}
-            strong {{ color: #e74c3c; }}
+            body {{ font-family: sans-serif; line-height: 1.6; color: #333; }}
+            h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
+            h2 {{ color: #2980b9; margin-top: 30px; border-left: 5px solid #eee; padding-left: 10px; }}
+            strong {{ color: #c0392b; background-color: #f9f9f9; padding: 2px 4px; border-radius: 4px; }}
             hr {{ border: 0; border-top: 1px solid #eee; margin: 20px 0; }}
-            .metadata {{ color: gray; font-size: small; margin-top: 50px; }}
+            .metadata {{ color: gray; font-size: 0.8em; margin-top: 50px; text-align: center; border-top: 1px dashed #ccc; padding-top: 10px; }}
         </style>
         </head>
         <body>
             <h1>{title}</h1>
+            <div style="color:#7f8c8d; font-style:italic; margin-bottom:20px;">
+                이 전자책은 AI가 영상을 분석하여 생성했습니다.
+            </div>
             <hr/>
             {html_content}
             <div class="metadata">
                 <p>Original Video: https://youtu.be/{video_id}</p>
-                <p>Generated by Tublisher with DeepSeek</p>
+                <p>Published by Tublisher</p>
             </div>
         </body>
         </html>
     """
     
     book.add_item(c1)
-
-    # 3. 필수 구조 (목차, 네비게이션) 추가
     book.toc = (epub.Link('chap_01.xhtml', 'Summary', 'intro'), (c1, []))
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
     book.spine = ['nav', c1]
 
-    # 4. 임시 파일 생성 및 저장
-    # delete=False로 설정하여 파일을 닫은 후에도 삭제되지 않게 함 (FastAPI가 전송해야 하므로)
+    # 임시 파일 생성
     with tempfile.NamedTemporaryFile(delete=False, suffix=".epub") as tmp:
         epub.write_epub(tmp.name, book)
         return tmp.name
 
 @app.get("/")
 def read_root():
-    return {"status": "Tublisher Factory is Running! 🏭"}
+    return {"status": "Tublisher Hybrid Server Running! 🚀"}
 
 @app.post("/api/create_book")
 async def create_book(request: BookRequest):
     print(f"📥 [주문 접수] URL: {request.url}")
-    
     video_id = extract_video_id(request.url)
     if not video_id:
-        # 안드로이드가 실패 처리하도록 400 에러 반환
         raise HTTPException(status_code=400, detail="Invalid YouTube URL")
 
+    # 1. 제목 추출
+    print("   🎬 메타데이터 분석 중...")
+    video_title = get_video_title(request.url)
+    book_content = ""
+    
+    # 2. 자막 추출 시도 (1차 시도)
+    transcript_text = None
     try:
-        # 1. 영상 제목 가져오기
-        video_title = get_video_title(request.url)
-        print(f"   🎬 제목: {video_title}")
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
+        transcript_text = " ".join([entry['text'] for entry in transcript_list])
+        print(f"   📜 자막 발견! (DeepSeek 모드 가동)")
+    except:
+        print("   ⚠️ 자막 없음! (Gemini 모드 가동)")
 
-        # 2. 자막 추출 (한국어 -> 영어 순 시도)
-        try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['ko', 'en'])
-            # 텍스트만 쭉 이어 붙이기
-            full_text = " ".join([entry['text'] for entry in transcript_list])
-            print(f"   📜 자막 추출 완료 ({len(full_text)}자)")
-        except Exception:
-            # 자막이 아예 없는 영상인 경우, 에러 내용으로 책을 만들어 보냄
-            error_msg = "## 실패: 이 영상에는 자막이 없습니다.\n\n자동 생성 자막이 없거나, 접근이 제한된 영상일 수 있습니다."
-            return FileResponse(
-                path=create_epub_file(video_title, error_msg, video_id),
-                filename=f"{video_id}_error.epub",
-                media_type='application/epub+zip'
-            )
+    # 3. AI 집필 (분기 처리)
+    system_prompt = """
+    당신은 전문 도서 편집자입니다. 제공된 내용을 바탕으로 가독성 높은 '전자책 챕터'를 작성하세요.
+    [지침]
+    1. 구어체를 문어체로 변환하고, 소제목(Heading 2)을 적극 활용하여 구조화하세요.
+    2. 핵심 내용은 볼드체로 강조하고, 마크다운 형식으로 출력하세요.
+    3. 요약보다는 내용을 충실히 서술하여 지식을 전달하세요.
+    """
 
-        # 3. DeepSeek에게 원고 작성 요청
-        # (비용 및 속도를 고려해 앞부분 15,000자만 사용)
-        input_text = full_text[:15000]
-        
-        system_prompt = """
-        당신은 베스트셀러 전문 도서 편집자입니다.
-        제공된 유튜브 영상의 자막(스크립트)을 바탕으로, 독자가 읽기 편한 '전자책 챕터' 형태로 내용을 재구성하세요.
-        
-        [필수 지침]
-        1. 문체: 구어체를 완벽한 문어체(책 서술형)로 다듬으세요. "했습니다" 대신 "하였다" 등을 사용하세요.
-        2. 구조: **소제목(Heading 2)** 을 적극적으로 사용하여 내용을 논리적으로 나누세요.
-        3. 포맷: Markdown 형식을 사용하세요. 중요한 키워드는 **볼드체**로 강조하세요.
-        4. 내용: 요약이 아니라 '지식의 정리'입니다. 내용을 너무 줄이지 말고 풍부하게 서술하세요.
-        """
-
-        print("   🤖 DeepSeek 집필 시작...")
-        if DEEPSEEK_API_KEY:
+    # [CASE A] 자막이 있는 경우 -> DeepSeek (빠르고 저렴)
+    if transcript_text:
+        if not DEEPSEEK_API_KEY:
+             book_content = "## 설정 오류\n\nDeepSeek API Key가 없습니다."
+        else:
             try:
-                response = client.chat.completions.create(
+                response = deepseek_client.chat.completions.create(
                     model="deepseek-chat",
                     messages=[
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": f"다음 자막을 책 원고로 변환해줘:\n\n{input_text}"}
-                    ],
-                    stream=False
+                        {"role": "user", "content": f"다음 자막을 책으로 변환해줘:\n\n{transcript_text[:15000]}"}
+                    ]
                 )
                 book_content = response.choices[0].message.content
             except Exception as e:
-                print(f"   ❌ AI 오류: {e}")
-                book_content = f"## AI 처리 실패\n\nDeepSeek API 호출 중 오류가 발생했습니다.\nError: {e}\n\n### 원본 자막 일부\n{input_text[:3000]}..."
+                book_content = f"## AI 오류\n\nDeepSeek 처리 중 오류 발생: {e}"
+
+    # [CASE B] 자막이 없는 경우 -> Gemini 1.5 Flash (오디오 듣기 + 쓰기)
+    else:
+        if not GOOGLE_API_KEY:
+            book_content = "## 설정 오류\n\n자막이 없는 영상은 Gemini가 필요합니다. Railway에 GOOGLE_API_KEY를 설정해주세요."
         else:
-            book_content = f"## API 키 누락\n\nRailway 변수 설정(Variables)에 DEEPSEEK_API_KEY를 추가해주세요.\n\n### 원본 자막 일부\n{input_text[:3000]}..."
+            audio_path = None
+            try:
+                print("   🎧 오디오 다운로드 중... (서버 공간 절약을 위해 저음질)")
+                audio_path = download_audio(request.url)
+                
+                print("   📤 Gemini에게 듣게 하는 중...")
+                audio_file = genai.upload_file(audio_path)
+                
+                print("   🤖 Gemini가 집필 중...")
+                # Gemini 1.5 Flash는 오디오 이해 능력이 뛰어납니다.
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                response = model.generate_content([
+                    system_prompt + "\n이 오디오 파일을 듣고 위 지침에 따라 책 원고를 작성해줘.",
+                    audio_file
+                ])
+                book_content = response.text
+                
+                # 처리 후 파일 삭제 (청소)
+                genai.delete_file(audio_file.name)
+            except Exception as e:
+                book_content = f"## 처리 실패\n\n오디오 분석 중 오류가 발생했습니다.\nError: {e}"
+            finally:
+                # 로컬 오디오 파일 삭제
+                if audio_path and os.path.exists(audio_path):
+                    os.remove(audio_path)
 
-        # 4. EPUB 제본 및 발송
-        print("   📚 EPUB 제본 중...")
-        epub_path = create_epub_file(video_title, book_content, video_id)
-        
-        print("   🚀 배송 시작!")
-        
-        # 생성된 EPUB 파일을 안드로이드 앱으로 스트리밍 전송
-        return FileResponse(
-            path=epub_path,
-            filename=f"summary_{video_id}.epub",
-            media_type='application/epub+zip'
-        )
-
-    except Exception as e:
-        print(f"❌ 치명적 오류: {e}")
-        # 서버 로그 확인용
-        raise HTTPException(status_code=500, detail=str(e))
+    # 4. EPUB 생성 및 반환
+    print("   📚 제본 및 배송...")
+    epub_path = create_epub_file(video_title, book_content, video_id)
+    
+    return FileResponse(
+        path=epub_path,
+        filename=f"summary_{video_id}.epub",
+        media_type='application/epub+zip'
+    )
