@@ -5,6 +5,7 @@ import requests
 import markdown
 import glob
 import unicodedata  # 한글 자모음 합치기용 (필수)
+import shutil
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,8 +64,18 @@ def download_audio(url: str):
     yt-dlp를 사용하여 오디오 다운로드 및 mp3 변환
     (nixpacks.toml 설정을 통해 ffmpeg가 설치되어 있어야 함)
     """
+    ffmpeg_path = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
+    ffprobe_path = os.environ.get("FFPROBE_PATH") or shutil.which("ffprobe")
+
+    if not ffmpeg_path or not ffprobe_path:
+        raise RuntimeError(
+            "ffmpeg/ffprobe를 찾을 수 없습니다. Railway 환경에 ffmpeg를 설치하거나 "
+            "FFMPEG_PATH/FFPROBE_PATH 환경 변수를 설정해주세요."
+        )
+
     ydl_opts = {
         'format': 'bestaudio/best',
+        'ffmpeg_location': os.path.dirname(ffmpeg_path) if os.path.isdir(ffmpeg_path) else ffmpeg_path,
         # ffmpeg를 사용하여 mp3로 변환 (용량 절약 및 호환성 확보)
         'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3','preferredquality': '128'}],
         'outtmpl': '/tmp/%(id)s.%(ext)s',  # Railway 임시 폴더 경로
