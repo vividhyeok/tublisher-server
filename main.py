@@ -1,11 +1,11 @@
 import os
 import re
 import tempfile
+import subprocess
 import requests
 import markdown
 import glob
 import unicodedata  # 한글 자모음 합치기용 (필수)
-import shutil
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,32 +63,28 @@ def extract_video_id(url: str):
 def download_audio(url: str):
     """
     yt-dlp를 사용하여 오디오 다운로드 및 mp3 변환. 
-    (FFmpeg 경로 탐색 로직 포함)
+    (Railway 환경에서 which 명령어로 ffmpeg 경로 탐색)
     """
-    # ffmpeg 경로를 환경변수에서 찾거나 시스템에서 찾습니다.
-    ffmpeg_path = os.environ.get("FFMPEG_PATH") or shutil.which("ffmpeg")
     
-    if not ffmpeg_path:
-        print("❌ ffmpeg not found in PATH or env vars")
+    # Railway 환경에서는 which 명령어로 ffmpeg 경로를 찾아야 함
+    try:
+        ffmpeg_path = subprocess.check_output(['which', 'ffmpeg']).decode('utf-8').strip()
+        print(f"✅ Found ffmpeg at: {ffmpeg_path}")
+    except subprocess.CalledProcessError:
+        print("❌ ffmpeg not found in PATH")
         raise RuntimeError(
-            "ffmpeg/ffprobe를 찾을 수 없습니다. nixpacks.toml 또는 환경 변수를 확인해주세요."
+            "ffmpeg를 찾을 수 없습니다. nixpacks.toml 설정을 확인해주세요."
         )
     
-    print(f"✅ Found ffmpeg at: {ffmpeg_path}")
-
     # ffprobe 확인 (디버깅용)
-    ffprobe_path = shutil.which("ffprobe")
-    if ffprobe_path:
+    try:
+        ffprobe_path = subprocess.check_output(['which', 'ffprobe']).decode('utf-8').strip()
         print(f"✅ Found ffprobe at: {ffprobe_path}")
-    else:
+    except subprocess.CalledProcessError:
         print("⚠️ ffprobe not found in PATH")
 
-    # ffmpeg_location 설정: yt-dlp는 디렉토리 경로를 선호할 수 있음
-    if os.path.isfile(ffmpeg_path):
-        ffmpeg_dir = os.path.dirname(ffmpeg_path)
-    else:
-        ffmpeg_dir = ffmpeg_path
-
+    # ffmpeg_location은 디렉토리 경로를 전달
+    ffmpeg_dir = os.path.dirname(ffmpeg_path)
     print(f"📂 Setting ffmpeg_location to: {ffmpeg_dir}")
 
     # yt-dlp 옵션 설정
