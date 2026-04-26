@@ -1,0 +1,25 @@
+[app]
+output_dir = "C:/Users/USER/Documents/YouTubeEPUB"
+theme = "system"
+
+[youtube]
+prefer_subtitles = true
+allow_audio_fallback = true
+yt_dlp_path = ""
+
+[ffmpeg]
+ffmpeg_path = "bin/ffmpeg.exe"
+ffprobe_path = "bin/ffprobe.exe"
+
+[llm]
+default_planning_provider = "openai"
+default_writing_provider = "openai"
+default_stt_provider = "openai"
+openai_stt_model = "gpt-4o-transcribe"
+timeout_sec = 120
+max_retries = 2
+
+[epub]
+default_language = "ko"
+include_source_url = true
+default_mode = "balanced"
