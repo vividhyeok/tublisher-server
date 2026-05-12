@@ -26,8 +26,9 @@ if errorlevel 1 (
   )
 )
 
-if "%OPENAI_API_KEY%"=="" (
-  echo [warn] OPENAI_API_KEY is not set. OpenAI planning/writing/STT will fail until it is configured.
+python -c "from dotenv import load_dotenv; import os; load_dotenv(); raise SystemExit(0 if os.getenv('OPENAI_API_KEY') else 1)" >nul 2>nul
+if errorlevel 1 (
+  echo [warn] OPENAI_API_KEY is not set in environment or .env. OpenAI planning/writing/STT will fail until it is configured.
 )
 
 python main.py

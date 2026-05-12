@@ -30,6 +30,7 @@ class AppConfig:
     default_language: str = "ko"
     include_source_url: bool = True
     default_mode: str = "balanced"
+    default_narrative_style: str = "natural"
 
 
 def default_config() -> AppConfig:
@@ -71,4 +72,5 @@ def _config_from_dict(data: dict[str, Any]) -> AppConfig:
         default_language=str(epub.get("default_language", defaults.default_language)),
         include_source_url=bool(epub.get("include_source_url", defaults.include_source_url)),
         default_mode=str(epub.get("default_mode", defaults.default_mode)),
+        default_narrative_style=str(epub.get("default_narrative_style", defaults.default_narrative_style)),
     )

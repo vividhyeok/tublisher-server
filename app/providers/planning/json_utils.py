@@ -8,9 +8,13 @@ from app.core.errors import LlmResponseFormatError
 from app.core.serialization import narrative_plan_from_dict
 
 
-def parse_plan_json(text: str):
+def parse_plan_json(text: str | dict[str, Any]):
     try:
-        return narrative_plan_from_dict(json.loads(_extract_json_object(text)))
+        if isinstance(text, dict):
+            payload = text
+        else:
+            payload = _extract_json_object(text)
+        return narrative_plan_from_dict(payload)
     except Exception as exc:
         raise LlmResponseFormatError(str(exc)) from exc
 

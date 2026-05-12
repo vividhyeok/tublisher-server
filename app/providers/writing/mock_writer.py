@@ -36,6 +36,12 @@ class MockWritingProvider:
 
 
 def _genre_note(content_type: str) -> str:
+    if content_type in {"technical_walkthrough", "process_tutorial", "service_build_tutorial"}:
+        return "단계 순서를 유지해 따라갈 수 있는 흐름으로 정리해야 한다."
+    if content_type in {"expert_forecast", "tech_society_commentary", "policy_commentary"}:
+        return "전망과 사실을 분리해 발화자 관점임을 표시해야 한다."
+    if content_type == "relationship_psychology":
+        return "관계 유형은 경향으로 다루고 진단처럼 단정하지 않아야 한다."
     if content_type in {"news_report", "news_commentary"}:
         return "영상에서 확인되는 사실과 발화자의 해석을 구분해 읽어야 한다."
     if content_type in {"personal_opinion", "story_essay"}:

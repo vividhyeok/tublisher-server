@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import replace
 
 from app.core.errors import DraftOverExpandedError
 from app.core.models import BookDraft, GuardIssue, GuardReport, LengthBudget, NarrativePlan, RiskLevel
@@ -10,6 +11,14 @@ from app.core.plan_guard import _RISK_ORDER
 
 _HEADING_RE = re.compile(r"^#{1,3}\s+(.+)$", re.MULTILINE)
 _EMOTIONAL_WORDS = ("놀라운", "감동", "운명", "경이", "위대한", "충격", "전율", "혁명적")
+_SENSITIVE_ASSERTIVE_PATTERNS = (
+    r"반드시",
+    r"무조건",
+    r"확실히",
+    r"완치",
+    r"치료된다",
+    r"극복해야",
+)
 
 
 def inspect_draft(draft: BookDraft, plan: NarrativePlan, budget: LengthBudget) -> GuardReport:
@@ -57,6 +66,17 @@ def inspect_draft(draft: BookDraft, plan: NarrativePlan, budget: LengthBudget) -
             )
         )
 
+    if plan.content_type in {"health_medical", "mental_health"}:
+        assertive_hits = _assertive_phrase_hits(draft.markdown)
+        if assertive_hits >= 2:
+            issues.append(
+                GuardIssue(
+                    code="sensitive_topic_assertive_tone",
+                    message="건강/정신건강 주제에서 단정적 표현이 반복됩니다.",
+                    risk_level="medium",
+                )
+            )
+
     for issue in issues:
         risk = _max_risk(risk, issue.risk_level)
 
@@ -99,4 +119,50 @@ def _paragraph_repetition_score(markdown: str) -> float:
 
 def _max_risk(left: RiskLevel, right: RiskLevel) -> RiskLevel:
     return left if _RISK_ORDER[left] >= _RISK_ORDER[right] else right
+
+
+def sanitize_draft(draft: BookDraft) -> BookDraft:
+    cleaned_markdown = _deduplicate_markdown_blocks(draft.markdown)
+    if cleaned_markdown == draft.markdown:
+        return draft
+    cleaned_chapters = [_deduplicate_markdown_blocks(chapter) for chapter in draft.chapters]
+    return replace(draft, markdown=cleaned_markdown, chapters=cleaned_chapters)
+
+
+def _deduplicate_markdown_blocks(markdown: str) -> str:
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", markdown) if block.strip()]
+    seen: set[str] = set()
+    kept: list[str] = []
+
+    for block in blocks:
+        sig = _block_signature(block)
+        if sig and sig in seen:
+            continue
+        if kept and sig and _is_list_block(kept[-1]) and not _is_list_block(block):
+            if _block_signature(kept[-1]) == sig:
+                continue
+        if sig:
+            seen.add(sig)
+        kept.append(block)
+
+    return "\n\n".join(kept).strip() + ("\n" if kept else "")
+
+
+def _block_signature(block: str) -> str:
+    text = re.sub(r"(?m)^\s*[-*+]\s+", "", block)
+    text = re.sub(r"(?m)^\s*\d+\.\s+", "", text)
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text
+
+
+def _is_list_block(block: str) -> bool:
+    lines = [line.strip() for line in block.splitlines() if line.strip()]
+    if not lines:
+        return False
+    return all(re.match(r"^([-*+]\s+|\d+\.\s+)", line) for line in lines)
+
+
+def _assertive_phrase_hits(markdown: str) -> int:
+    lowered = markdown.lower()
+    return sum(len(re.findall(pattern, lowered)) for pattern in _SENSITIVE_ASSERTIVE_PATTERNS)
 

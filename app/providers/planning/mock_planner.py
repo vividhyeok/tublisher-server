@@ -49,8 +49,10 @@ class MockPlanningProvider:
             target_length_chars=length_budget.target_chars,
             max_length_chars=length_budget.max_chars,
             output_mode=length_budget.mode,
+            narrative_style="natural",
             source_dependency="high",
             allowed_expansion="원본 이해를 돕는 최소 배경 설명만 허용",
+            safety_tags=content_analysis.safety_tags,
             chapters=chapters,
             expected_reader_after_reading="영상의 핵심 질문과 주요 논지를 짧게 설명할 수 있다.",
             caution_points=content_analysis.caution_points
@@ -90,6 +92,10 @@ def _chapter_question(index: int) -> str:
 
 def _core_question(content_type: str) -> str:
     questions = {
+        "technical_walkthrough": "이 과정을 어떤 순서로 따라가야 재현할 수 있는가?",
+        "service_build_tutorial": "서비스를 만들 때 무엇을 어떤 순서로 결정해야 하는가?",
+        "expert_forecast": "이 전망은 어떤 전제를 두고 제시되는가?",
+        "relationship_psychology": "유형 차이를 단정 없이 어떻게 이해해야 하는가?",
         "news_report": "영상 기준으로 무엇이 실제로 확인되고, 아직 불확실한 점은 무엇인가?",
         "news_commentary": "이 영상은 어떤 쟁점을 어떻게 해석하고 있는가?",
         "personal_opinion": "발화자는 무엇을 문제로 느끼고 어떤 메시지를 전하려 하는가?",
@@ -103,6 +109,9 @@ def _core_question(content_type: str) -> str:
 
 def _axis_left(content_type: str) -> str:
     return {
+        "technical_walkthrough": "단계/절차",
+        "expert_forecast": "발화자의 전망",
+        "relationship_psychology": "관계 패턴",
         "news_report": "확인된 사실",
         "news_commentary": "영상의 주장",
         "personal_opinion": "발화자의 경험",
@@ -114,6 +123,9 @@ def _axis_left(content_type: str) -> str:
 
 def _axis_right(content_type: str) -> str:
     return {
+        "technical_walkthrough": "실행 조건",
+        "expert_forecast": "불확실성/반대 시나리오",
+        "relationship_psychology": "개인차/예외",
         "news_report": "불확실한 점",
         "news_commentary": "반대 관점/확인 필요 지점",
         "personal_opinion": "따져볼 지점",
@@ -124,6 +136,12 @@ def _axis_right(content_type: str) -> str:
 
 
 def _prerequisites(content_type: str) -> list[str]:
+    if content_type in {"technical_walkthrough", "process_tutorial", "service_build_tutorial"}:
+        return ["단계를 건너뛰지 않고 순서대로 이해한다"]
+    if content_type in {"expert_forecast", "tech_society_commentary", "policy_commentary"}:
+        return ["전망과 확인된 사실을 구분한다", "영상 이후 상황 변화 가능성을 고려한다"]
+    if content_type == "relationship_psychology":
+        return ["유형은 경향일 뿐 진단이 아님을 전제한다"]
     if content_type in {"news_report", "news_commentary"}:
         return ["영상에서 확인되는 사실과 발화자의 해석을 구분한다", "영상 이후 사실관계가 바뀌었을 수 있다"]
     if content_type == "interview":

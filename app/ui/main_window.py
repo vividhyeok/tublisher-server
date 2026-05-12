@@ -26,7 +26,7 @@ from app.core.models import JobRequest
 from app.ui.log_panel import LogPanel
 from app.ui.plan_review_dialog import PlanReviewDialog
 from app.ui.settings_dialog import SettingsDialog
-from app.ui.view_models import MODE_LABELS, PROVIDER_LABELS, TRANSCRIPT_PROVIDER_LABELS
+from app.ui.view_models import MODE_LABELS, NARRATIVE_STYLE_LABELS, PROVIDER_LABELS, TRANSCRIPT_PROVIDER_LABELS
 from app.ui.worker import PipelineWorker
 
 
@@ -57,6 +57,11 @@ class MainWindow(QMainWindow):
             self.mode_combo.addItem(label, value)
         self._set_combo_value(self.mode_combo, self.config.default_mode)
 
+        self.narrative_style_combo = QComboBox(self)
+        for value, label in NARRATIVE_STYLE_LABELS.items():
+            self.narrative_style_combo.addItem(label, value)
+        self._set_combo_value(self.narrative_style_combo, self.config.default_narrative_style)
+
         self.planning_combo = QComboBox(self)
         self.writing_combo = QComboBox(self)
         for value, label in PROVIDER_LABELS.items():
@@ -79,6 +84,7 @@ class MainWindow(QMainWindow):
         form.addRow("YouTube URL", self.url_input)
         form.addRow("저장 폴더", output_row)
         form.addRow("출력 모드", self.mode_combo)
+        form.addRow("서술 스타일", self.narrative_style_combo)
         form.addRow("Plan provider", self.planning_combo)
         form.addRow("Writing provider", self.writing_combo)
         form.addRow("Transcript provider", self.transcript_combo)
@@ -129,6 +135,7 @@ class MainWindow(QMainWindow):
             planning_provider=self.planning_combo.currentData(),
             language=self.language_input.text().strip() or "ko",
             output_mode=self.mode_combo.currentData(),
+            narrative_style=self.narrative_style_combo.currentData(),
             prefer_subtitles=self.prefer_subtitles_check.isChecked(),
             allow_audio_fallback=self.audio_fallback_check.isChecked(),
         )

@@ -120,6 +120,7 @@ def _format_plan_review(bundle: PlanReviewBundle) -> str:
         "## 영상 유형",
         f"- 분류: {content_type_label(plan.content_type)} / 신뢰도 {plan.content_type_confidence:.2f}",
         f"- 분류 이유: {plan.content_type_reason}",
+        f"- 안전 태그: {', '.join(plan.safety_tags) if plan.safety_tags else '없음'}",
         f"- 초기 분석: {content_type_label(analysis.content_type)} / 신뢰도 {analysis.confidence:.2f}",
         f"- 지배 구조: {analysis.dominant_structure}",
         "",

@@ -15,7 +15,8 @@ def build_planning_prompt(
 ) -> str:
     clipped_transcript = _clip_text(transcript.raw_text, transcript_limit)
     schema = {
-        "content_type": "technical_lecture|educational_explanation|news_report|news_commentary|personal_opinion|interview|debate|review_critique|story_essay|mixed",
+        "content_type": "technical_lecture|educational_explanation|technical_walkthrough|process_tutorial|service_build_tutorial|project_case_study|tool_review|expert_forecast|expert_interview|tech_society_commentary|policy_commentary|relationship_psychology|health_advice|personal_essay|news_report|news_commentary|personal_opinion|health_medical|mental_health|interview|debate|review_critique|story_essay|mixed",
+        "safety_tags": ["health_sensitive|mental_health_sensitive|avoid_diagnosis|avoid_medical_advice|future_prediction|separate_fact_and_opinion|political_sensitive|version_policy_may_change|financial_sensitive|legal_sensitive|personal_claim"],
         "content_type_confidence": "float 0.0-1.0",
         "content_type_reason": "string",
         "title": "string",
@@ -29,6 +30,7 @@ def build_planning_prompt(
         "target_length_chars": "int",
         "max_length_chars": "int",
         "output_mode": "compact|balanced|expanded",
+        "narrative_style": "natural|structured",
         "source_dependency": "high|medium|low",
         "allowed_expansion": "string",
         "chapters": [
@@ -70,13 +72,16 @@ def build_planning_prompt(
 7. 각 챕터는 질문 -> 설명 -> 정리 -> 다음 연결 구조를 갖는다.
 8. 원본 transcript의 핵심 논지를 벗어나지 마라.
 9. content_type에 맞는 EPUB 구조를 선택하라.
+10. content_type(장르)와 safety_tags(안전 주의점)를 분리해서 설계하라.
 10. 뉴스/시사/의견 영상에서는 사실, 발화자 주장, AI의 해석을 구분할 수 있는 plan을 만들어라.
 11. 인터뷰/토론에서는 누가 어떤 입장을 말했는지 구분할 수 있는 구조를 만들어라.
 12. 리뷰/비평에서는 평가 기준, 장단점, 추천 대상을 중심으로 구조화하라.
-13. 출력은 반드시 JSON 하나만 반환한다. Markdown 코드블록을 쓰지 마라.
+13. 건강/의학/정신건강 영상은 진단이나 치료 지시처럼 쓰지 말고, 개인차와 전문가 상담 필요성을 반영하라.
+14. 출력은 반드시 JSON 하나만 반환한다. Markdown 코드블록을 쓰지 마라.
 
 영상 유형 분석:
 - content_type: {content_analysis.content_type}
+- safety_tags: {", ".join(content_analysis.safety_tags) if content_analysis.safety_tags else "없음"}
 - confidence: {content_analysis.confidence:.2f}
 - reason: {content_analysis.reason}
 - dominant_structure: {content_analysis.dominant_structure}
@@ -84,9 +89,17 @@ def build_planning_prompt(
 
 영상 유형별 구조 지침:
 - technical_lecture / educational_explanation: 개념 이해, 선지식, 주요 개념, 예시, 요약, 복습 질문 중심
+- technical_walkthrough / process_tutorial / service_build_tutorial: 단계 순서 중심, 절차 재현 가능성 중심
+- project_case_study: 문제-시도-결과-교훈 흐름 중심
+- tool_review: 기능 소개, 실제 사용 흐름, 장단점, 적용 조건, 추천 대상 중심
+- expert_forecast / tech_society_commentary / policy_commentary: 전망과 사실을 구분하는 논점 구조 중심
+- expert_interview: 질문-답변 주체 구분 중심
+- relationship_psychology: 유형을 단정하지 않는 경향/맥락 설명 중심
+- health_advice / health_medical / mental_health: 개인차, 단정 회피, 안전 안내 중심
 - news_report: 무슨 일이 있었나, 핵심 사실, 시간순 전개, 관련 인물/기관, 쟁점, 불확실한 점 중심
 - news_commentary: 사건, 핵심 질문, 발화자의 주장, 근거, 반대 관점, 사실/의견 구분 중심
 - personal_opinion / story_essay: 문제의식, 경험, 주장, 메시지, 공감 지점, 따져볼 지점 중심
+- personal_essay: 개인 경험 중심이되 일반화 억제
 - interview: 질문, 답변, 반복 관점, 인상적인 주장, 확인 필요 지점 중심
 - debate: 참여자별 입장, 주요 쟁점, 근거, 충돌 지점, 합의/남은 질문 중심
 - review_critique: 리뷰 대상, 평가 기준, 긍정/부정 평가, 핵심 근거, 추천 대상 중심
