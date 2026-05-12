@@ -235,12 +235,25 @@ async def create_book(request: BookRequest, background_tasks: BackgroundTasks):
                 audio_file = genai.upload_file(audio_path)
                 
                 print("   🤖 Gemini 집필 중...")
-                model = genai.GenerativeModel("gemini-flash-latest")
-                response = model.generate_content([
-                    system_prompt + "\n이 오디오 파일을 듣고 위 지침에 따라 책 원고를 작성해줘.",
-                    audio_file
-                ])
-                book_content = response.text
+                model = genai.GenerativeModel(
+                    "gemini-1.5-flash-8b",
+                    generation_config={
+                        "temperature": 0.7,
+                        "max_output_tokens": 8192,
+                    }
+                )
+                
+                response = model.generate_content(
+                    [audio_file, system_prompt + "\n\n이 오디오 파일을 듣고 위 지침에 따라 책 원고를 작성해줘."],
+                    request_options={"timeout": 600}
+                )
+                
+                # 응답 검증
+                if response and response.text:
+                    book_content = response.text
+                else:
+                    print(f"⚠️ Gemini 응답 없음. Response: {response}")
+                    book_content = "## 처리 실패\n\n오디오 분석 중 Gemini가 응답을 생성하지 못했습니다."
                 
                 genai.delete_file(audio_file.name)
             except Exception as e:
